@@ -6,6 +6,7 @@ edition = "2018"
 readme = "README.md"
 description = "A collection of useful testing assertions and utilities"
 repository = "https://github.com/Lucretiel/cool_asserts"
+license = "MPL-2.0"
 
 [badges]
 travis-ci = { repository = "Lucretiel/cool_asserts" }
