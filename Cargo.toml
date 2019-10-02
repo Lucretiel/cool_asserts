@@ -1,8 +1,15 @@
 [package]
-name = "assert_matches"
-version = "0.1.0"
+name = "cool_asserts"
+version = "1.0.0"
 authors = ["Nathan West <Lucretiel@gmail.com>"]
 edition = "2018"
+readme = "README.md"
+description = "A collection of useful testing assertions and utilities"
+repository = "https://github.com/Lucretiel/cool_asserts"
+
+[badges]
+travis-ci = { repository = "Lucretiel/cool_asserts" }
+maintenance = { status = "actively-developed" }
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
