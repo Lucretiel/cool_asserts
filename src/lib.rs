@@ -30,20 +30,21 @@ pub fn ref_type_name<T: ?Sized>(_: &T) -> &'static str {
 /// assert_eq!(message, "Hello, World!");
 #[inline]
 pub fn get_panic_message(panic: &Box<dyn Any + Send>) -> Option<&str> {
-    panic.downcast_ref::<String>()
+    panic
+        .downcast_ref::<String>()
         .map(String::as_str)
         .or_else(|| panic.downcast_ref::<&'static str>().map(Deref::deref))
 }
 
 #[cfg(test)]
 mod test_get_panic_message {
-    use std::panic::catch_unwind;
     use super::get_panic_message;
+    use std::panic::catch_unwind;
 
     #[test]
     fn str_message() {
-        let result = catch_unwind(|| panic!("Hello, World!"))
-            .expect_err("Function didn't panic????");
+        let result =
+            catch_unwind(|| panic!("Hello, World!")).expect_err("Function didn't panic????");
         assert_eq!(get_panic_message(&result), Some("Hello, World!"));
     }
 
@@ -63,8 +64,7 @@ mod test_get_panic_message {
 
     #[test]
     fn other_message() {
-        let result = catch_unwind(|| panic!(25))
-            .expect_err("Function didn't panic????");
+        let result = catch_unwind(|| panic!(25)).expect_err("Function didn't panic????");
         assert_eq!(get_panic_message(&result), None);
     }
 }
@@ -93,8 +93,12 @@ macro_rules! max {
 #[macro_export]
 #[doc(hidden)]
 macro_rules! make_assertion_failure_fmt {
-    () => {"\n {:>padding$}: {}"};
-    (debug) => {"\n {:>padding$}: {:?}"};
+    () => {
+        "\n {:>padding$}: {}"
+    };
+    (debug) => {
+        "\n {:>padding$}: {:?}"
+    };
 }
 
 #[macro_export]
@@ -180,7 +184,7 @@ macro_rules! assertion_failure {
 
 #[cfg(test)]
 mod assertion_failure_tests {
-    use super::{assertion_failure, assert_panics};
+    use super::{assert_panics, assertion_failure};
     #[test]
     fn just_message() {
         assert_panics!(
@@ -580,19 +584,19 @@ mod test_assert_panics {
         }
 
         #[test]
-        #[should_panic(expected="expression didn't panic")]
+        #[should_panic(expected = "expression didn't panic")]
         fn fails_without_panic() {
             assert_panics!(1 + 1);
         }
 
         #[test]
-        #[should_panic(expected="panic message didn't include expected string")]
+        #[should_panic(expected = "panic message didn't include expected string")]
         fn fails_without_substring() {
             assert_panics!(panic!("{} {}", "This", "Message"), includes("That Message"))
         }
 
         #[test]
-        #[should_panic(expected="panic message included disallowed string")]
+        #[should_panic(expected = "panic message included disallowed string")]
         fn fails_with_substring() {
             assert_panics!(panic!("{} {}", "This", "Message"), excludes("Message"))
         }
@@ -612,10 +616,7 @@ mod test_assert_panics {
     #[test]
     fn fails_without_substring() {
         assert_panics!(
-            assert_panics!(
-                panic!("{} {}", "This", "Message"),
-                includes("That Message")
-            ),
+            assert_panics!(panic!("{} {}", "This", "Message"), includes("That Message")),
             includes("assertion failed at"),
             excludes("expression didn't panic"),
             includes("panic message didn't include expected string"),
@@ -628,10 +629,7 @@ mod test_assert_panics {
     #[test]
     fn fails_with_substring() {
         assert_panics!(
-            assert_panics!(
-                panic!("{} {}", "This", "Message"),
-                excludes("Message")
-            ),
+            assert_panics!(panic!("{} {}", "This", "Message"), excludes("Message")),
             includes("assertion failed at"),
             excludes("expression didn't panic"),
             includes("panic message included disallowed string"),
