@@ -4,6 +4,14 @@
 use std::any::Any;
 use std::ops::Deref;
 
+/// Get the type name of a value as a string. Same as [`std::any::type_name`],
+/// but it operates on a value, which allows it to work on inferred types.
+#[inline]
+#[doc(hidden)]
+pub fn ref_type_name<T: ?Sized>(_: &T) -> &'static str {
+    ::core::any::type_name::<T>()
+}
+
 /// Get the panic message as a `&str`, if available
 ///
 /// While a panic value can be any type, *usually* it is either a `String`
@@ -358,12 +366,15 @@ mod test_assert_matches {
 /// - It allows for checking that a particular expression or statement panics,
 ///   rather than an entire test function.
 /// - It allows checking for the presence or absence of multiple substrings.
-/// `should_panic` can only test for a single substring (with `expected`),
-/// and can't test for absence at all.
+///   `should_panic` can only test for a single substring (with `expected`),
+///   and can't test for absence at all.
+/// - It allows checking for multiple panicking expressions in the same test
+///   case
 ///
 /// ## Examples
 ///
 /// ```
+/// // This example passes
 /// use cool_asserts::assert_panics;
 ///
 /// assert_panics!({
@@ -372,6 +383,7 @@ mod test_assert_matches {
 /// });
 /// ```
 /// ```should_panic
+/// // This example panics
 /// use cool_asserts::assert_panics;
 ///
 /// assert_panics!(1 + 2);
@@ -482,42 +494,36 @@ macro_rules! assert_panics {
             Ok(result) => $crate::assertion_failure!(
                 "expression didn't panic",
                 expression: stringify!($expression),
-                returned debug: result
+                returned debug: result,
             ),
-            Err($panic) => {
-                $body
-            }
+            Err($panic) => $body,
         }
     );
 
     ($expression:expr, |$msg:ident $(: &str)?| $body:expr) => (
-        $crate::assert_panics!($expression, |panic: Box<dyn Any>| {
-            let $msg: &str = $crate::get_panic_message(&panic)
-                .unwrap_or_else(|| $crate::assertion_failure!(
+        $crate::assert_panics!($expression, |panic: Box<dyn Any>|
+            match $crate::get_panic_message(&panic) {
+                Some($msg) => $body,
+                None => $crate::assertion_failure!(
                     "expression panic type wasn't String or &str",
                     expression: stringify!($expression),
-                ));
-
-            { $body }
-        })
+                ),
+            }
+        )
     );
 
     ($expression:expr, |$value:ident: &$type:ty| $body:expr) => (
-        $crate::assert_panics!($expression, |panic: Box<dyn Any>| {
-            fn ref_type_name<T: ?Sized>(_value: &T) -> &'static str {
-                ::core::any::type_name::<T>()
-            }
-
-            let $value: &$type = panic.downcast_ref()
-                .unwrap_or_else(|| $crate::assertion_failure!(
+        $crate::assert_panics!($expression, |panic: Box<dyn Any>|
+            match panic.downcast_ref::<$type>() {
+                Some($value) => $body,
+                None => $crate::assertion_failure!(
                     "expression panic type mismatch",
                     expression: stringify!($expression),
                     expected: stringify!($type),
-                    actual: ref_type_name(&panic),
+                    actual: $crate::ref_type_name(&panic),
                 )
-            );
-            { $body }
-        })
+            }
+        )
     );
 
     ($expression:expr $(,)?) => (
