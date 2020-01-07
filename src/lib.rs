@@ -161,15 +161,20 @@ macro_rules! assertion_failure {
     ($message:literal $($(, $key:ident $($spec:ident)?: $value:expr)+)? $(; $($fmt:tt)+)? ) => {
         panic!(
             concat!(
-                "assertion failed at {file}:{line}: `(", $message, ")`",
+                "assertion failed at {file}:{line}: `({message})`",
+
+                // This inserts a series of "\n{}: {}" fields for (key, value) pairs
                 $($($crate::make_assertion_failure_fmt!($($spec)?),)+)?
+
+                // This inserts a trailing "\n{}" if there is a fmt messag
                 $($crate::make_assertion_failure_tail!($($fmt)+),)?
             ),
             $($(stringify!($key), $value,)+)?
             $(format_args!($($fmt)+),)?
-            $(padding = $crate::max!($(stringify!($key).len(),)+),)?
+            message=$message,
             file=file!(),
             line=line!(),
+            $(padding = $crate::max!($(stringify!($key).len(),)+),)?
         )
     };
 
