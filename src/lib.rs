@@ -97,7 +97,7 @@ macro_rules! make_assertion_failure_fmt {
         "\n {:>padding$}: {}"
     };
     (debug) => {
-        "\n {:>padding$}: {:?}"
+        "\n {:>padding$}: {:#?}"
     };
 }
 
@@ -326,7 +326,7 @@ mod test_assert_matches {
             includes("assertion failed"),
             includes("value does not match pattern"),
             includes("pattern: None"),
-            includes(&format!("value: {:?}", TEST_VALUE))
+            includes(&format!("value: {:#?}", TEST_VALUE))
         );
     }
 
@@ -337,7 +337,7 @@ mod test_assert_matches {
             includes("assertion failed"),
             includes("value does not match pattern"),
             includes("pattern: Some(v) if v.y == 0"),
-            includes(&format!("value: {:?}", TEST_VALUE))
+            includes(&format!("value: {:#?}", TEST_VALUE))
         );
     }
 
@@ -348,7 +348,7 @@ mod test_assert_matches {
             includes("assertion failed"),
             includes("value does not match pattern"),
             includes("pattern: None"),
-            includes(&format!("value: {:?}", TEST_VALUE)),
+            includes(&format!("value: {:#?}", TEST_VALUE)),
             excludes("Custom Panic"),
         );
     }
