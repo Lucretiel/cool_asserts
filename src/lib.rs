@@ -344,7 +344,7 @@ mod test_assert_matches {
     #[test]
     fn basic_block_failure() {
         assert_panics!(
-            assert_matches!(TEST_VALUE, None => {panic!("Custom Panic")}),
+            assert_matches!(TEST_VALUE, None => panic!("Custom Panic")),
             includes("assertion failed"),
             includes("value does not match pattern"),
             includes("pattern: None"),
@@ -356,7 +356,7 @@ mod test_assert_matches {
     #[test]
     fn failure_in_block() {
         assert_panics!(
-            assert_matches!(TEST_VALUE, Some(TestStruct{..}) => {panic!("Custom Panic")}),
+            assert_matches!(TEST_VALUE, Some(TestStruct{..}) => panic!("Custom Panic")),
             includes("Custom Panic"),
             excludes("assertion failed"),
             excludes("value does not match pattern"),
