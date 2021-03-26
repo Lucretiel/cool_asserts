@@ -1,6 +1,6 @@
 [package]
 name = "cool_asserts"
-version = "1.0.3"
+version = "1.1.0"
 authors = ["Nathan West <Lucretiel@gmail.com>"]
 edition = "2018"
 readme = "README.md"

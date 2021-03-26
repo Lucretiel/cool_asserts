@@ -262,16 +262,16 @@ mod assertion_failure_tests {
 /// ```
 #[macro_export]
 macro_rules! assert_matches {
-    ($expression:expr, $pattern:pat $(if $guard:expr)? $(=> $block:expr)?, ) => {
-        $crate::assert_matches!($expression, $pattern $(if $guard)? $(=> $block)?)
+    ($expression:expr, $( $pattern:pat )|+ $(if $guard:expr)? $(=> $block:expr)?, ) => {
+        $crate::assert_matches!($expression, $( $pattern )|+ $(if $guard)? $(=> $block)?)
     };
-    ($expression:expr, $pattern:pat $(if $guard:expr)? $(=> $block:expr)? $(, $($fmt_arg:tt)+)?) => ({
+    ($expression:expr, $( $pattern:pat )|+ $(if $guard:expr)? $(=> $block:expr)? $(, $($fmt_arg:tt)+)?) => ({
         match $expression {
-            $pattern $(if $guard)? => { $($block)? },
+            $( $pattern )|+ $(if $guard)? => { $($block)? },
             v => $crate::assertion_failure!(
                 "value does not match pattern",
                 value debug: v,
-                pattern: stringify!($pattern $(if $guard)?)
+                pattern: stringify!($($pattern)|+ $(if $guard)?)
                 $(; $($fmt_arg)+)?
             )
         }
@@ -317,6 +317,24 @@ mod test_assert_matches {
         assert_matches!(TEST_VALUE, Some(v) if v.y == 20 => {
             assert_eq!(v.x, 10);
         })
+    }
+
+    #[test]
+    fn multiple_patterns() {
+        #[derive(Debug)]
+        enum Thing {
+            NoValue,
+            Value1(i32),
+            Value2(i32),
+        }
+
+        assert_matches!(Thing::Value1(10), Thing::Value1(x) | Thing::Value2(x) => assert_eq!(x, 10));
+        assert_matches!(Thing::Value2(10), Thing::Value1(x) | Thing::Value2(x) => assert_eq!(x, 10));
+
+        assert_panics!(
+            assert_matches!(Thing::NoValue, Thing::Value1(x) | Thing::Value2(x) => assert_eq!(x, 10)),
+            includes("pattern: Thing::Value1(x) | Thing::Value2(x)")
+        );
     }
 
     #[test]
