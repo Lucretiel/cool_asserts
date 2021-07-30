@@ -1,6 +1,6 @@
 [package]
 name = "cool_asserts"
-version = "1.1.0"
+version = "1.1.1"
 authors = ["Nathan West <Lucretiel@gmail.com>"]
 edition = "2018"
 readme = "README.md"
@@ -14,4 +14,5 @@ maintenance = { status = "actively-developed" }
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
-[dependencies]
+[dev-dependencies]
+rustversion = "1.0.5"

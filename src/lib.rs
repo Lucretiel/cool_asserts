@@ -39,7 +39,7 @@ pub fn get_panic_message(panic: &Box<dyn Any + Send>) -> Option<&str> {
 #[cfg(test)]
 mod test_get_panic_message {
     use super::get_panic_message;
-    use std::panic::catch_unwind;
+    use std::panic::{catch_unwind, panic_any};
 
     #[test]
     fn str_message() {
@@ -48,10 +48,12 @@ mod test_get_panic_message {
         assert_eq!(get_panic_message(&result), Some("Hello, World!"));
     }
 
+    #[rustversion::since(1.51)] // For panic_any
     #[test]
     fn string_message() {
-        let result = catch_unwind(|| panic!("Hello, World!".to_string()))
+        let result = catch_unwind(|| panic_any("Hello, World!".to_owned()))
             .expect_err("Function didn't panic????");
+
         assert_eq!(get_panic_message(&result), Some("Hello, World!"));
     }
 
@@ -62,9 +64,10 @@ mod test_get_panic_message {
         assert_eq!(get_panic_message(&result), Some("Hello, World!"));
     }
 
+    #[rustversion::since(1.51)] // For panic_any
     #[test]
     fn other_message() {
-        let result = catch_unwind(|| panic!(25)).expect_err("Function didn't panic????");
+        let result = catch_unwind(|| panic_any(25)).expect_err("Function didn't panic????");
         assert_eq!(get_panic_message(&result), None);
     }
 }
@@ -268,7 +271,7 @@ macro_rules! assert_matches {
     ($expression:expr, $( $pattern:pat )|+ $(if $guard:expr)? $(=> $block:expr)? $(, $($fmt_arg:tt)+)?) => ({
         match $expression {
             $( $pattern )|+ $(if $guard)? => { $($block)? },
-            v => $crate::assertion_failure!(
+            ref v => $crate::assertion_failure!(
                 "value does not match pattern",
                 value debug: v,
                 pattern: stringify!($($pattern)|+ $(if $guard)?)
@@ -379,6 +382,27 @@ mod test_assert_matches {
             excludes("assertion failed"),
             excludes("value does not match pattern"),
         )
+    }
+
+    #[test]
+    fn failure_doesnt_move() {
+        #[derive(Debug)]
+        struct Thing2 {
+            value: i32,
+        }
+
+        #[derive(Debug)]
+        struct Thing {
+            thing2: Thing2,
+        }
+
+        let thing = Thing {
+            thing2: Thing2 { value: 10 },
+        };
+
+        let thing_ref = &thing;
+
+        assert_matches!(thing_ref.thing2, Thing2 { value: 10 })
     }
 }
 
@@ -593,6 +617,8 @@ macro_rules! check_rule {
 
 #[cfg(test)]
 mod test_assert_panics {
+    use std::panic::panic_any;
+
     use super::assert_panics;
     mod bootstrap_tests {
         use super::assert_panics;
@@ -676,10 +702,11 @@ mod test_assert_panics {
         })
     }
 
+    #[rustversion::since(1.51)] // For panic_any
     #[test]
     fn str_closure_mismatch() {
         assert_panics!(
-            assert_panics!(panic!(32), |_msg| {
+            assert_panics!(panic_any(32), |_msg| {
                 panic!("CUSTOM PANIC");
             }),
             includes("assertion failed at"),
@@ -699,22 +726,22 @@ mod test_assert_panics {
         );
     }
 
+    #[rustversion::since(1.51)] // For panic_any
     #[test]
     fn typed_closure() {
-        assert_panics!(panic!(244 as i32), |value: &i32| {
+        assert_panics!(panic_any(244i32), |value: &i32| {
             assert_eq!(value, &244);
         })
     }
 
+    #[rustversion::since(1.51)] // For panic_any
     #[test]
     fn typed_closure_mismatch() {
         assert_panics!(
-            assert_panics!(panic!(244 as i32), |_value: &i64| {
-                panic!("CUSTOM PANIC")
-            }),
+            assert_panics!(panic_any(244i32), |_value: &i64| { panic!("CUSTOM PANIC") }),
             excludes("CUSTOM PANIC"),
             includes("expression panic type mismatch"),
-            includes("expression: panic!(244 as i32)"),
+            includes("expression: panic_any(244i32)"),
             includes("expected: i64"),
         );
     }
