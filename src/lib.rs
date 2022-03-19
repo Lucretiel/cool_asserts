@@ -4,6 +4,9 @@
 use std::any::Any;
 use std::ops::Deref;
 
+#[doc(hidden)]
+pub use indent_write;
+
 /// Get the type name of a value as a string. Same as [`std::any::type_name`],
 /// but it operates on a value, which allows it to work on inferred types.
 #[inline]
@@ -48,7 +51,6 @@ mod test_get_panic_message {
         assert_eq!(get_panic_message(&result), Some("Hello, World!"));
     }
 
-    #[rustversion::since(1.51)] // For panic_any
     #[test]
     fn string_message() {
         let result = catch_unwind(|| panic_any("Hello, World!".to_owned()))
@@ -64,7 +66,6 @@ mod test_get_panic_message {
         assert_eq!(get_panic_message(&result), Some("Hello, World!"));
     }
 
-    #[rustversion::since(1.51)] // For panic_any
     #[test]
     fn other_message() {
         let result = catch_unwind(|| panic_any(25)).expect_err("Function didn't panic????");
@@ -74,8 +75,8 @@ mod test_get_panic_message {
 
 /// Compute the max of list of expressions.
 ///
-/// This is given as a macro so that it can be fully evaluated at compile
-/// time.
+/// This is given as a macro so that it can be fully evaluated in a const
+/// context
 ///
 /// It guarantees that:
 ///
@@ -92,7 +93,8 @@ macro_rules! max {
     }}
 }
 
-/// Get a partial format string for assertion_failure given the spec
+/// Get a partial format string for an assertion_failure key-value pair given
+/// the spec
 #[macro_export]
 #[doc(hidden)]
 macro_rules! make_assertion_failure_fmt {
@@ -104,13 +106,39 @@ macro_rules! make_assertion_failure_fmt {
     };
 }
 
+/// Get a partial format string for an assertion_failure trailing message
 #[macro_export]
 #[doc(hidden)]
 macro_rules! make_assertion_failure_tail {
     () => {};
     ($($_arg:tt)+) => {
-        "\n  {}"
+        "\n{}"
     };
+}
+
+/// Returns the first token and discards all subsequent tokens. Used as a
+/// helper in macro repetitios that don't need to make use of the repeated
+/// variable, like count!
+#[macro_export]
+#[doc(hidden)]
+macro_rules! discard_tail {
+    ($token:tt $($_discard:tt)*) => {
+        $token
+    };
+}
+
+/// Count the number of top-level tokens
+///
+/// count!(1 2) => 2
+/// count!((1 2) 3) => 2
+#[doc(hidden)]
+#[macro_export]
+macro_rules! count {
+    ( $( $thing:tt )* ) => {
+        0 $(
+            + $crate::discard_tail!(1 $thing)
+        )*
+    }
 }
 
 /// Panic with an assertion failure message
@@ -161,7 +189,7 @@ macro_rules! make_assertion_failure_tail {
 /// ```
 #[macro_export]
 macro_rules! assertion_failure {
-    ($message:literal $($(, $key:ident $($spec:ident)?: $value:expr)+)? $(; $($fmt:tt)+)? ) => {
+    ($message:literal $($(, $key:ident $($spec:ident)? : $value:expr)+)? $(; $fmt_pattern:literal $($fmt:tt)*)? ) => {
         panic!(
             concat!(
                 "assertion failed at {file}:{line}: `({message})`",
@@ -173,7 +201,12 @@ macro_rules! assertion_failure {
                 $($crate::make_assertion_failure_tail!($($fmt)+),)?
             ),
             $($(stringify!($key), $value,)+)?
-            $(format_args!($($fmt)+),)?
+            $(
+                $crate::indent_write::indentable::Indented{
+                    item: format_args!($fmt_pattern $($fmt)+),
+                    indent: "  ",
+                },
+            )?
             message=$message,
             file=file!(),
             line=line!(),
@@ -181,11 +214,11 @@ macro_rules! assertion_failure {
         )
     };
 
-    ($message:literal $($(, $key:ident $($spec:ident)?: $value:expr)+)? ,) => {
+    ($message:literal $($(, $key:ident $($spec:ident)? : $value:expr)+)? ,) => {
         $crate::assertion_failure!($message $($(, $key $($spec)?: $value)+)?)
     };
 
-    ($message:literal $($(, $key:ident $($spec:ident)?: $value:expr)+)? ;) => {
+    ($message:literal $($(, $key:ident $($spec:ident)? : $value:expr)+)? ;) => {
         $crate::assertion_failure!($message $($(, $key $($spec)?: $value)+)?)
     };
 }
@@ -234,51 +267,150 @@ mod assertion_failure_tests {
             includes("\n  Hello, World!")
         );
     }
+
+    #[test]
+    fn mutliline_trailing_fmt() {
+        assert_panics!(
+            assertion_failure!(
+                "Failure Message";
+                "{}\n\n{}", "Hello", "World"
+            ),
+            includes("assertion failed at"),
+            includes("Failure Message"),
+            includes("\n  Hello\n\n  World")
+        )
+    }
 }
 
-/// Assert that the value of an expression matches a given pattern.
-///
-/// This assertion checks that the value of an expression matches a pattern.
-/// It panics if the expression does not match.
-///
-/// Optionally, provide a block with `=> { <block> }`; the block will be run
-/// with the matched pattern if the match was successful. This allows running
-/// additional assertions on the matched pattern.
-///
-/// You can also add a trailing format message that will be included with
-/// the panic in the event of an assertion failure, just like with
-/// [`assert_eq!`].
-///
-/// # Example
-///
-/// ```
-/// use cool_asserts::{assert_matches, assert_panics};
-///
-/// assert_panics!{
-///     assert_matches!(Some(10), None),
-///     includes("value does not match pattern"),
-/// }
-///
-/// assert_matches!(Some(10), Some(x) => {
-///     assert_eq!(x, 10);
-/// })
-/// ```
+/// Helper macro for assert_matches. This is the implementation for the
+/// assert_matches iterator behavior, which returns an array containing only
+/// the matched patterns that include a => block, or returns nothing if there
+/// are no such blocks.
+#[doc(hidden)]
+#[macro_export]
+macro_rules! assert_matches_array_helper {
+    ( $( $prefix_item:expr, )* $( $( => ($($_ignore:tt)*) $take_item:expr, $($suffix_item:expr,)* )+ )? ) => {{
+        $(
+            let () = $prefix_item;
+        )*
+
+        $([$({
+            let item = $take_item;
+
+            $(
+                let () = $suffix_item;
+            )*
+
+            item
+        },)+])?
+    }};
+}
+
+/**
+Assert that the value of an expression matches a given pattern.
+
+This assertion checks that the value of an expression matches a pattern.
+It panics if the expression does not match.
+
+Optionally, provide a block with `=> { <block> }`; the block will be run
+with the matched pattern if the match was successful. This allows running
+additional assertions on the matched pattern, or returning values to the
+caller of `assert_matches`
+
+You can also add a trailing format message that will be included with
+the panic in the event of an assertion failure, just like with
+[`assert_eq!`].
+
+# Example
+
+```
+use cool_asserts::{assert_matches, assert_panics};
+
+assert_panics!{
+    assert_matches!(Some(10), None),
+    includes("value does not match pattern"),
+}
+
+assert_matches!(Some(10), Some(x) => {
+    assert_eq!(x, 10);
+});
+
+// assert_matches can return a value
+let x = assert_matches!(Some(10), Some(x) => x);
+assert_eq!(x, 10);
+```
+
+# Iteratables
+
+`assert_matches` can handle matching on iterators. If the pattern is a `[..]`
+slice pattern, the test value is treated as an iterator, and each item in the
+iterator is matched
+
+*/
 #[macro_export]
 macro_rules! assert_matches {
-    ($expression:expr, $( $pattern:pat )|+ $(if $guard:expr)? $(=> $block:expr)?, ) => {
-        $crate::assert_matches!($expression, $( $pattern )|+ $(if $guard)? $(=> $block)?)
-    };
-    ($expression:expr, $( $pattern:pat )|+ $(if $guard:expr)? $(=> $block:expr)? $(, $($fmt_arg:tt)+)?) => ({
+    (
+        $expression:expr,
+        [
+            $( $(
+                $pattern:pat $(if $guard:expr)? $(=> $block:expr)?
+            ),+ $(,)? )?
+        ] $(,)?
+    ) => {{
+        const TARGET_LENGTH: usize = $crate::count!( $($(( $pattern ))+)? );
+        let iterator = ::core::iter::IntoIterator::into_iter($expression);
+        let iterator = ::core::iter::Iterator::enumerate(iterator);
+        let mut count: usize = 0;
+        let mut iterator = $crate::Counter{inner: iterator, count: &mut count};
+
+        let collected_blocks = $crate::assert_matches_array_helper! [$($(
+            $( => ($block) )?
+            match ::core::iter::Iterator::next(&mut iterator) {
+                ::core::option::Option::Some((index, item)) => $crate::assert_matches!(
+                    item,
+                    $pattern $(if $guard)? $(=> $block)?,
+                    "in iterable at index {}", index
+                ),
+                ::core::option::Option::None => $crate::assertion_failure!(
+                    "iterable was too short",
+                    actual_length: count,
+                    target_length: TARGET_LENGTH,
+                )
+            },
+        )+)?];
+
+        if let ::core::option::Option::Some((_, overflow)) = ::core::iter::Iterator::next(&mut iterator) {
+            // Drain the rest of the iterator so that `count` is correct
+            let _ = ::core::iter::Iterator::count(iterator);
+
+            $crate::assertion_failure!(
+                "iterable was too long",
+                actual_length: count,
+                target_length: TARGET_LENGTH,
+                first_overflow debug: overflow,
+            );
+        }
+
+        collected_blocks
+    }};
+
+    (
+        $expression:expr,
+        $pattern:pat $(if $guard:expr)? $(=> $block:expr)?
+        $(, $( $fmt_pattern:literal $($fmt_arg:tt)* )? )?
+    ) => {
         match $expression {
-            $( $pattern )|+ $(if $guard)? => { $($block)? },
+            $pattern $(if $guard)? => { $($block)? },
+
+            #[allow(unreachable_patterns)]
             ref v => $crate::assertion_failure!(
                 "value does not match pattern",
                 value debug: v,
-                pattern: stringify!($($pattern)|+ $(if $guard)?)
-                $(; $($fmt_arg)+)?
+                pattern: stringify!($pattern $(if $guard)?)
+                $($(; $fmt_pattern $($fmt_arg)+)?)?
             )
         }
-    });
+    };
 }
 
 #[cfg(test)]
@@ -316,10 +448,81 @@ mod test_assert_matches {
     }
 
     #[test]
+    fn block_returns() {
+        let x = assert_matches!(TEST_VALUE, Some(TestStruct{x, y: 20}) => x);
+        assert_eq!(x, 10);
+    }
+
+    #[test]
     fn basic_guard_block() {
         assert_matches!(TEST_VALUE, Some(v) if v.y == 20 => {
             assert_eq!(v.x, 10);
         })
+    }
+
+    #[test]
+    fn basic_iterable() {
+        let data = vec![1, 2, 3];
+
+        assert_matches!(data, [1, 2, 3]);
+    }
+
+    #[test]
+    fn basic_iterable_capture() {
+        let data = vec![1, 2, 3, 4, 5, 6];
+
+        let [a, b, c] = assert_matches!(data, [
+            1,
+            a => a,
+            3,
+            4,
+            b => b,
+            c => c,
+        ]);
+
+        assert_eq!(a, 2);
+        assert_eq!(b, 5);
+        assert_eq!(c, 6);
+    }
+
+    #[test]
+    fn iterable_empty_capture() {
+        let data = vec![1, 2, 3, 4, 5, 6];
+
+        let () = assert_matches!(data, [1, 2, 3, 4, _a, 6,]);
+    }
+
+    #[test]
+    fn any_iterator() {
+        let data = vec![Some(1), None, Some(2)];
+        let data = data.into_iter().chain([None, None, Some(3)]);
+
+        let [a, b] = assert_matches!(data, [
+            Some(a) => a,
+            None,
+            Some(2),
+            None,
+            None,
+            Some(b) => b,
+        ]);
+
+        assert_eq!(a, 1);
+        assert_eq!(b, 3);
+    }
+
+    /// Ensure that slice patterns with a trailing => continue to work correctly
+    #[test]
+    fn slice_trailing_block() {
+        let data = [1, 2, 3, 4];
+
+        let a = assert_matches!(data, [
+            1, 2, a, b,
+        ] => {
+            assert_eq!(b, 4);
+            a
+        });
+
+        assert_eq!(a, 3)
     }
 
     #[test]
@@ -382,6 +585,81 @@ mod test_assert_matches {
             excludes("assertion failed"),
             excludes("value does not match pattern"),
         )
+    }
+
+    #[test]
+    fn iter_failure_mismatch() {
+        let data = vec![None, Some(3), None];
+
+        assert_panics!(
+            assert_matches!(data, [None, Some(3), Some(3)]),
+            includes("assertion failed"),
+            includes("value does not match pattern"),
+            includes("in iterable at index 2"),
+            includes("  value: None"),
+            includes("pattern: Some(3)"),
+        );
+    }
+
+    #[test]
+    fn iter_failure_iter_too_short() {
+        let data = vec![1, 2, 3];
+
+        assert_panics!(
+            assert_matches!(data, [1, 2, 3, 4, a => a, b => b]),
+            includes("assertion failed"),
+            includes("iterable was too short"),
+            includes("actual_length: 3"),
+            includes("target_length: 6"),
+        );
+    }
+
+    /// Test that, if an iterator is too short, the pattern match failure
+    /// happens first
+    #[test]
+    fn iter_failure_iter_too_short_mismatch() {
+        let data = vec![1, 2, 3];
+
+        assert_panics!(
+            assert_matches!(data, [1, 4, 3, 4, a => a, b => b]),
+            includes("assertion failed"),
+            includes("value does not match pattern"),
+            includes("in iterable at index 1"),
+            includes("  value: 2"),
+            includes("pattern: 4"),
+        );
+    }
+
+    #[test]
+    fn iter_failure_iter_too_long() {
+        let data = vec![1, 2, 3];
+        let data = data.into_iter().chain([4, 5, 6]);
+
+        assert_panics!(
+            assert_matches!(data, [1, 2, 3]),
+            includes("assertion failed"),
+            includes("iterable was too long"),
+            includes("actual_length: 6"),
+            includes("target_length: 3"),
+            includes("first_overflow: 4"),
+        );
+    }
+
+    /// Test that, if an iterator is too long, the pattern match failure
+    /// happens first
+    #[test]
+    fn iter_failure_iter_too_long_mismatch() {
+        let data = vec![1, 2, 3];
+        let data = data.into_iter().chain([4, 5, 6]);
+
+        assert_panics!(
+            assert_matches!(data, [1, 4, 3]),
+            includes("assertion failed"),
+            includes("value does not match pattern"),
+            includes("in iterable at index 1"),
+            includes("  value: 2"),
+            includes("pattern: 4"),
+        );
     }
 
     #[test]
@@ -515,7 +793,7 @@ mod test_assert_matches {
 /// ```
 /// use cool_asserts::assert_panics;
 ///
-/// assert_panics!(panic!(10i64), |value: &i64| {
+/// assert_panics!(std::panic::panic_any(10i64), |value: &i64| {
 ///     assert_eq!(value, &10);
 /// })
 /// ```
@@ -525,7 +803,7 @@ mod test_assert_matches {
 ///
 /// assert_panics!(
 ///     assert_panics!(
-///         panic!(10i64),
+///         std::panic::panic_any(10i64),
 ///         |value: &i32| {
 ///             panic!("CUSTOM PANIC");
 ///         }
@@ -598,7 +876,7 @@ macro_rules! check_rule {
                 "panic message didn't include expected string",
                 expression: stringify!($expression),
                 message debug: $msg,
-                expected debug: $incl,
+                includes debug: $incl,
             );
         }
     );
@@ -609,7 +887,7 @@ macro_rules! check_rule {
                 "panic message included disallowed string",
                 expression: stringify!($expression),
                 message debug: $msg,
-                disallowed debug: $excl,
+                excludes debug: $excl,
             );
         }
     );
@@ -670,8 +948,8 @@ mod test_assert_panics {
             excludes("expression didn't panic"),
             includes("panic message didn't include expected string"),
             includes("expression: panic!(\"{} {}\", \"This\", \"Message\")"),
-            includes("message: \"This Message\""),
-            includes("expected: \"That Message\""),
+            includes(" message: \"This Message\""),
+            includes("includes: \"That Message\""),
         );
     }
 
@@ -683,8 +961,8 @@ mod test_assert_panics {
             excludes("expression didn't panic"),
             includes("panic message included disallowed string"),
             includes("expression: panic!(\"{} {}\", \"This\", \"Message\")"),
-            includes("message: \"This Message\""),
-            includes("disallowed: \"Message\""),
+            includes(" message: \"This Message\""),
+            includes("excludes: \"Message\""),
         );
     }
 
@@ -702,7 +980,6 @@ mod test_assert_panics {
         })
     }
 
-    #[rustversion::since(1.51)] // For panic_any
     #[test]
     fn str_closure_mismatch() {
         assert_panics!(
@@ -726,7 +1003,6 @@ mod test_assert_panics {
         );
     }
 
-    #[rustversion::since(1.51)] // For panic_any
     #[test]
     fn typed_closure() {
         assert_panics!(panic_any(244i32), |value: &i32| {
@@ -734,7 +1010,6 @@ mod test_assert_panics {
         })
     }
 
-    #[rustversion::since(1.51)] // For panic_any
     #[test]
     fn typed_closure_mismatch() {
         assert_panics!(
@@ -744,5 +1019,49 @@ mod test_assert_panics {
             includes("expression: panic_any(244i32)"),
             includes("expected: i64"),
         );
+    }
+}
+
+/// Helper iterator that counts how many things have been iterated
+#[doc(hidden)]
+pub struct Counter<'a, I> {
+    inner: I,
+    count: &'a mut usize,
+}
+
+impl<'a, I: Iterator> Iterator for Counter<'a, I> {
+    type Item = I::Item;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner.next().map(|item| {
+            *self.count += 1;
+            item
+        })
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.inner.size_hint()
+    }
+
+    fn count(self) -> usize
+    where
+        Self: Sized,
+    {
+        let count = self.inner.count();
+        *self.count += count;
+        count
+    }
+
+    fn fold<B, F>(self, init: B, mut f: F) -> B
+    where
+        Self: Sized,
+        F: FnMut(B, Self::Item) -> B,
+    {
+        let (count, accum) = self.inner.fold((0, init), |(count, accum), item| {
+            (count + 1, f(accum, item))
+        });
+
+        *self.count += count;
+        accum
     }
 }
