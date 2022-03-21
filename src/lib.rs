@@ -282,27 +282,144 @@ mod assertion_failure_tests {
     }
 }
 
-/// Helper macro for assert_matches. This is the implementation for the
-/// assert_matches iterator behavior, which returns an array containing only
-/// the matched patterns that include a => block, or returns nothing if there
-/// are no such blocks.
+macro_rules! compute_target_length {
+    ($length:expr, ) => {
+        $length
+    };
+
+    ($length:expr, $($name:ident @ )? .. , $($pattern:pat,)*) => {
+        $crate::compute_target_length!($length, $($pattern,)*)..
+    };
+
+    ($length:expr, $pattern:pat, $($tail:pat,)*) => {
+        $crate::compute_target_length!($length + 1, $($tail,)*)
+    }
+}
+
 #[doc(hidden)]
 #[macro_export]
-macro_rules! assert_matches_array_helper {
-    ( $( $prefix_item:expr, )* $( $( => ($($_ignore:tt)*) $take_item:expr, $($suffix_item:expr,)* )+ )? ) => {{
-        $(
-            let () = $prefix_item;
-        )*
+macro_rules! assert_matches_iter_impl {
+    (
+        iter: $iter:ident,
+        index: $index:expr,
+        collected: ($($item:ident,)*),
+        patterns: [],
+        $(sliced,)?
+    ) => {
+        match ::core::iter::Iterator::next(&mut $iter) {
+            ::core::option::Option::Some(overflow) => $crate::assertion_failure!(
+                "iterable was too long",
+                actual_length: $index + 1 + ::core::iter::Iterator::count($iter),
+                target_length: $index,
+                first_overflow debug: overflow,
+            ),
+            ::core::option::Option::None => ($($item,)*)
+        }
+    };
 
-        $([$({
-            let item = $take_item;
+    (
+        iter: $iter:ident,
+        index: $index:expr,
+        collected: ($($item:ident,)*),
+        patterns: [
+            $($name:ident @)* .. $(if $guard:expr)? $(=> $block:expr)? ,
+            $($tail_pattern:pat $(if $tail_guard:expr)? $(=> $tail_block:expr)? ,)*
+        ],
+        sliced,
+    ) => {
+        compile_error!("can't have more than one .. rest pattern in a [] slice pattern")
+    };
 
-            $(
-                let () = $suffix_item;
-            )*
+    (
+        iter: $iter:ident,
+        index: $index:expr,
+        collected: ($($item:ident,)*),
+        patterns: [
+            $($name:ident @)* .. $(if $guard:expr)? ,
+            $($tail_pattern:pat $(if $tail_guard:expr)? $(=> $tail_block:expr)? ,)*
+        ],
+    ) => {
+        compile_error!("slice patterns aren't implemented yet")
+    };
 
-            item
-        },)+])?
+    (
+        iter: $iter:ident,
+        index: $index:expr,
+        collected: ($($item:ident,)*),
+        patterns: [
+            $($name:ident @)* .. $(if $guard:expr)? => $block:expr ,
+            $($tail_pattern:pat $(if $tail_guard:expr)? $(=> $tail_block:expr)? ,)*
+        ],
+    ) => {
+        compile_error!("slice patterns aren't implemented yet")
+    };
+
+    (
+        iter: $iter:ident,
+        index: $index:expr,
+        collected: ($($item:ident,)*),
+        patterns: [
+            $pattern:pat $(if $guard:expr)? ,
+            $($tail_pattern:pat $(if $tail_guard:expr)? $(=> $tail_block:expr)? ,)*
+        ],
+        $($sliced:ident,)?
+    ) => {{
+        match ::core::iter::Iterator::next(&mut $iter) {
+            ::core::option::Option::Some(item) => $crate::assert_matches!(
+                item,
+                $pattern $(if $guard)?,
+                "in iterable at index {}", $index
+            ),
+            ::core::option::Option::None => $crate::assertion_failure!(
+                "iterable was too short",
+                actual_length: $index,
+                target_length: todo!(),
+            )
+        }
+
+        $crate::assert_matches_iter_impl!(
+            iter: $iter,
+            index: $index + 1,
+            collected: ($($item,)*),
+            patterns: [
+                $($tail_pattern $(if $tail_guard)? $(=> $tail_block)? ,)*
+            ],
+            $($sliced:,)?
+        )
+    }};
+
+    (
+        iter: $iter:ident,
+        index: $index:expr,
+        collected: ($($item:ident,)*),
+        patterns: [
+            $pattern:pat $(if $guard:expr)? => $block:expr,
+            $($tail_pattern:pat $(if $tail_guard:expr)? $(=> $tail_block:expr)? ,)*
+        ],
+        $($sliced:ident,)?
+    ) => {{
+        let evaluated_match = match ::core::iter::Iterator::next(&mut $iter) {
+            ::core::option::Option::Some(item) => $crate::assert_matches!(
+                item,
+                $pattern $(if $guard)? => $block,
+                "in iterable at index {}", $index
+            ),
+            ::core::option::Option::None => $crate::assertion_failure!(
+                "iterable was too short",
+                actual_length: $index,
+                target_length: todo!(),
+            )
+        };
+
+        $crate::assert_matches_iter_impl!(
+            iter: $iter,
+            index: $index + 1,
+            collected: ($($item,)* evaluated_match,),
+            patterns: [
+                $($tail_pattern $(if $tail_guard)? $(=> $tail_block)? ,)*
+            ],
+            $($sliced,)?
+        )
     }};
 }
 
@@ -357,41 +474,16 @@ macro_rules! assert_matches {
             ),+ $(,)? )?
         ] $(,)?
     ) => {{
-        const TARGET_LENGTH: usize = $crate::count!( $($(( $pattern ))+)? );
-        let iterator = ::core::iter::IntoIterator::into_iter($expression);
-        let iterator = ::core::iter::Iterator::enumerate(iterator);
-        let mut count: usize = 0;
-        let mut iterator = $crate::Counter{inner: iterator, count: &mut count};
+        let mut iterator = ::core::iter::IntoIterator::into_iter($expression);
 
-        let collected_blocks = $crate::assert_matches_array_helper! [$($(
-            $( => ($block) )?
-            match ::core::iter::Iterator::next(&mut iterator) {
-                ::core::option::Option::Some((index, item)) => $crate::assert_matches!(
-                    item,
-                    $pattern $(if $guard)? $(=> $block)?,
-                    "in iterable at index {}", index
-                ),
-                ::core::option::Option::None => $crate::assertion_failure!(
-                    "iterable was too short",
-                    actual_length: count,
-                    target_length: TARGET_LENGTH,
-                )
-            },
-        )+)?];
-
-        if let ::core::option::Option::Some((_, overflow)) = ::core::iter::Iterator::next(&mut iterator) {
-            // Drain the rest of the iterator so that `count` is correct
-            let _ = ::core::iter::Iterator::count(iterator);
-
-            $crate::assertion_failure!(
-                "iterable was too long",
-                actual_length: count,
-                target_length: TARGET_LENGTH,
-                first_overflow debug: overflow,
-            );
-        }
-
-        collected_blocks
+        $crate::assert_matches_iter_impl!(
+            iter: iterator,
+            index: 0,
+            collected: (),
+            patterns: [ $($(
+                $pattern $(if $guard)? $(=> $block)?,
+            )+)? ],
+        )
     }};
 
     (
