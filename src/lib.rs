@@ -1,11 +1,14 @@
 //! A collection of useful assertions and other utilities for writing
 //! tests in Rust.
 
-use std::any::Any;
-use std::ops::Deref;
+#[doc(hidden)]
+pub mod iterators;
 
 #[doc(hidden)]
 pub use indent_write;
+
+use std::any::Any;
+use std::ops::Deref;
 
 /// Get the type name of a value as a string. Same as [`std::any::type_name`],
 /// but it operates on a value, which allows it to work on inferred types.
