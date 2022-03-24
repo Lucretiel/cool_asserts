@@ -282,6 +282,8 @@ mod assertion_failure_tests {
     }
 }
 
+#[doc(hidden)]
+#[macro_export]
 macro_rules! compute_target_length {
     ($length:expr, ) => {
         $length
@@ -302,6 +304,7 @@ macro_rules! assert_matches_iter_impl {
     (
         iter: $iter:ident,
         index: $index:expr,
+        target_length: $target:expr,
         collected: ($($item:ident,)*),
         patterns: [],
         $(sliced,)?
@@ -320,6 +323,7 @@ macro_rules! assert_matches_iter_impl {
     (
         iter: $iter:ident,
         index: $index:expr,
+        target_length: $target:expr,
         collected: ($($item:ident,)*),
         patterns: [
             $($name:ident @)* .. $(if $guard:expr)? $(=> $block:expr)? ,
@@ -333,18 +337,20 @@ macro_rules! assert_matches_iter_impl {
     (
         iter: $iter:ident,
         index: $index:expr,
+        target_length: $target:expr,
         collected: ($($item:ident,)*),
         patterns: [
             $($name:ident @)* .. $(if $guard:expr)? ,
             $($tail_pattern:pat $(if $tail_guard:expr)? $(=> $tail_block:expr)? ,)*
         ],
     ) => {
-        compile_error!("slice patterns aren't implemented yet")
+
     };
 
     (
         iter: $iter:ident,
         index: $index:expr,
+        target_length: $target:expr,
         collected: ($($item:ident,)*),
         patterns: [
             $($name:ident @)* .. $(if $guard:expr)? => $block:expr ,
@@ -357,6 +363,7 @@ macro_rules! assert_matches_iter_impl {
     (
         iter: $iter:ident,
         index: $index:expr,
+        target_length: $target:expr,
         collected: ($($item:ident,)*),
         patterns: [
             $pattern:pat $(if $guard:expr)? ,
@@ -373,13 +380,14 @@ macro_rules! assert_matches_iter_impl {
             ::core::option::Option::None => $crate::assertion_failure!(
                 "iterable was too short",
                 actual_length: $index,
-                target_length: todo!(),
+                target_length: $target,
             )
         }
 
         $crate::assert_matches_iter_impl!(
             iter: $iter,
             index: $index + 1,
+            target_length: $target,
             collected: ($($item,)*),
             patterns: [
                 $($tail_pattern $(if $tail_guard)? $(=> $tail_block)? ,)*
@@ -391,6 +399,7 @@ macro_rules! assert_matches_iter_impl {
     (
         iter: $iter:ident,
         index: $index:expr,
+        target_length: $target:expr,
         collected: ($($item:ident,)*),
         patterns: [
             $pattern:pat $(if $guard:expr)? => $block:expr,
@@ -407,13 +416,14 @@ macro_rules! assert_matches_iter_impl {
             ::core::option::Option::None => $crate::assertion_failure!(
                 "iterable was too short",
                 actual_length: $index,
-                target_length: todo!(),
+                target_length: $target,
             )
         };
 
         $crate::assert_matches_iter_impl!(
             iter: $iter,
             index: $index + 1,
+            target_length: $target,
             collected: ($($item,)* evaluated_match,),
             patterns: [
                 $($tail_pattern $(if $tail_guard)? $(=> $tail_block)? ,)*
@@ -475,10 +485,12 @@ macro_rules! assert_matches {
         ] $(,)?
     ) => {{
         let mut iterator = ::core::iter::IntoIterator::into_iter($expression);
+        const TARGET_LENGTH: usize = compute_target_length!(0, $($($pattern, )+)?);
 
         $crate::assert_matches_iter_impl!(
             iter: iterator,
             index: 0,
+            target_length: TARGET_LENGTH,
             collected: (),
             patterns: [ $($(
                 $pattern $(if $guard)? $(=> $block)?,
@@ -563,7 +575,7 @@ mod test_assert_matches {
     fn basic_iterable_capture() {
         let data = vec![1, 2, 3, 4, 5, 6];
 
-        let [a, b, c] = assert_matches!(data, [
+        let (a, b, c) = assert_matches!(data, [
             1,
             a => a,
             3,
@@ -589,7 +601,7 @@ mod test_assert_matches {
         let data = vec![Some(1), None, Some(2)];
         let data = data.into_iter().chain([None, None, Some(3)]);
 
-        let [a, b] = assert_matches!(data, [
+        let (a, b) = assert_matches!(data, [
             Some(a) => a,
             None,
             Some(2),
