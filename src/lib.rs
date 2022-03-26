@@ -5,6 +5,9 @@
 pub mod iterators;
 
 #[doc(hidden)]
+pub mod length;
+
+#[doc(hidden)]
 pub use indent_write;
 
 use std::any::Any;
@@ -287,13 +290,30 @@ mod assertion_failure_tests {
 
 #[doc(hidden)]
 #[macro_export]
+macro_rules! compute_target_length_no_slice {
+    () => { 0 };
+
+    ($($name:ident@ )* .. , $($pattern:pat,)*) => {
+        compile_error!("can't have more than one .. rest pattern in a [] slice pattern")
+    };
+
+    ($pattern:pat, $($tail:pat,)*) => {
+        1 + $crate::compute_target_length_no_slice!($($tail,)*)
+    };
+}
+
+#[doc(hidden)]
+#[macro_export]
 macro_rules! compute_target_length {
     ($length:expr, ) => {
         $length
     };
 
-    ($length:expr, $($name:ident @ )? .. , $($pattern:pat,)*) => {
-        $crate::compute_target_length!($length, $($pattern,)*)..
+    ($length:expr, $($name:ident @ )* .. , $($pattern:pat,)*) => {
+        $crate::length::LowerBound(
+            $length +
+            $crate::compute_target_length_no_slice!($($pattern,)*)
+        )
     };
 
     ($length:expr, $pattern:pat, $($tail:pat,)*) => {

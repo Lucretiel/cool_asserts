@@ -1,4 +1,4 @@
-use std::{iter::FusedIterator, mem};
+use std::{iter::FusedIterator, mem, ops::Add};
 
 #[derive(Debug, Clone)]
 pub struct LoopBuffer<T, const N: usize> {
@@ -13,8 +13,8 @@ impl<T, const N: usize> LoopBuffer<T, N> {
 
     pub fn push(&mut self, item: T) -> T {
         debug_assert!(self.head < N);
-        let old_item = mem::replace(&mut self.buffer[self.head], item);
-        self.head = (self.head + 1) % N;
+        let old_item = mem::replace(unsafe { self.buffer.get_unchecked_mut(self.head) }, item);
+        self.head = self.head.add(1).rem_euclid(N);
         old_item
     }
 
@@ -45,6 +45,15 @@ impl<'a, I: Iterator, const N: usize> Iterator for BufferIterator<'a, I, N> {
 
     fn size_hint(&self) -> (usize, Option<usize>) {
         self.iter.size_hint()
+    }
+
+    fn fold<B, F>(self, init: B, mut f: F) -> B
+    where
+        Self: Sized,
+        F: FnMut(B, Self::Item) -> B,
+    {
+        self.iter
+            .fold(init, move |accum, item| f(accum, self.buffer.push(item)))
     }
 }
 
