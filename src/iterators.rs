@@ -18,43 +18,34 @@ impl<T, const N: usize> LoopBuffer<T, N> {
         old_item
     }
 
+    pub fn bind_iterator<'a>(
+        &'a mut self,
+        iter: impl Iterator<Item = T> + 'a,
+    ) -> impl Iterator<Item = T> + 'a {
+        iter.map(move |item| self.push(item))
+    }
+
     pub fn into_array(mut self) -> [T; N] {
         self.buffer.rotate_left(self.head);
         self.buffer
     }
 }
 
-#[derive(Debug)]
-pub struct BufferIterator<'a, I: Iterator, const N: usize> {
+#[test]
+fn test_loop_buffer() {
+    let data = [3, 4, 5, 6];
+    let mut buffer = LoopBuffer::new(data);
+
+    let iterated: Vec<i32> = buffer.bind_iterator(7..).take(11).collect();
+
+    assert_eq!(iterated, [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]);
+    assert_eq!(buffer.into_array(), [14, 15, 16, 17])
+}
+
+#[inline(always)]
+#[doc(hidden)]
+pub fn erase_type<I: Iterator + FusedIterator>(
     iter: I,
-    buffer: &'a mut LoopBuffer<I::Item, N>,
+) -> impl Iterator<Item = I::Item> + FusedIterator {
+    iter
 }
-
-impl<'a, I: Iterator, const N: usize> BufferIterator<'a, I, N> {
-    pub fn new(iter: I, buffer: &'a mut LoopBuffer<I::Item, N>) -> Self {
-        Self { iter, buffer }
-    }
-}
-
-impl<'a, I: Iterator, const N: usize> Iterator for BufferIterator<'a, I, N> {
-    type Item = I::Item;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.iter.next().map(|item| self.buffer.push(item))
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        self.iter.size_hint()
-    }
-
-    fn fold<B, F>(self, init: B, mut f: F) -> B
-    where
-        Self: Sized,
-        F: FnMut(B, Self::Item) -> B,
-    {
-        self.iter
-            .fold(init, move |accum, item| f(accum, self.buffer.push(item)))
-    }
-}
-
-impl<'a, I: FusedIterator, const N: usize> FusedIterator for BufferIterator<'a, I, N> {}
