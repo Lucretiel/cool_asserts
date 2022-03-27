@@ -36,6 +36,9 @@ macro_rules! check_bind_guard_block {
     ) => {{}}
 }
 
+/// Helper to build an array of precisely the correct length out of the
+/// the iterator, where the correct length is the number of patterns in the
+/// patterns list.
 #[doc(hidden)]
 #[macro_export]
 macro_rules! build_tail_array {
@@ -90,8 +93,6 @@ macro_rules! assert_matches_iter_split {
             ::core::option::Option::None => ($($collected,)*)
         }
     };
-
-    // REST PATTERNS
 
     // Rest pattern as the last pattern. We can just forward the iterator
     // directly in this case, potentially even returning it from assert matches.
@@ -159,10 +160,10 @@ macro_rules! assert_matches_iter_split {
             patterns: [$($tail)+]
         );
 
-        // Use LoopBuffer and BufferIterator to create an iterator that will
-        // yield all but the last N items of the iterator. When this is done,
-        // the LoopBuffer will contain the last N items of the iterator, which
-        // we will forward to the remainder of the assert_matches.
+        // Use LoopBuffer to create an iterator that will yield all but the
+        // last N items of the iterator. When this is done, the LoopBuffer will
+        // contain those last N items of the iterator, which we will forward to
+        // the remaining patterns.
         let mut buffer = $crate::iterators::LoopBuffer::new(buffer);
         let mut index = $index;
 
@@ -216,7 +217,6 @@ macro_rules! assert_matches_iter_split {
         )
     }};
 
-    // NON-REST PATTERNS
     (
         iter: $iter:ident,
         index: $index:expr,
@@ -304,7 +304,8 @@ mod tests {
 
     #[test]
     fn basic_guard_block() {
-        let data = get_data();
+        let data = vec![Some(0), Some(1), None];
+        let data = data.into_iter().chain([None, Some(2), Some(3), None]);
 
         let (a, c) = assert_matches!(data, [
             Some(0),
@@ -404,8 +405,34 @@ mod tests {
 
     #[test]
     fn basic_middle_rest() {
-        let data = get_data();
+        let data = vec![Some(0), Some(1), None];
+        let data = data.into_iter().chain([None, Some(2), Some(3), None]);
+
         assert_matches!(data, [Some(0), .., None]);
+    }
+
+    #[test]
+    fn rest_bound() {
+        let data = vec![Some(0), Some(1), None];
+        let data = data.into_iter().chain([None, Some(2), Some(3), None]);
+
+        assert_matches!(data, [
+            Some(0),
+            mut inner @ .. => assert_eq!(inner.next().unwrap(), Some(1)),
+            None,
+        ]);
+    }
+
+    #[test]
+    fn rest_guard() {
+        let data = vec![Some(0), Some(1), None];
+        let data = data.into_iter().chain([None, Some(2), Some(3), None]);
+
+        let () = assert_matches!(data, [
+            Some(0),
+            inner @ .. if inner.count() == 5,
+            None,
+        ]);
     }
 
     #[test]
@@ -435,16 +462,6 @@ mod tests {
     }
 
     #[test]
-    fn rest_bound() {
-        let data = get_data();
-        assert_matches!(data, [
-            Some(0),
-            mut inner @ .. => assert_eq!(inner.next().unwrap(), Some(1)),
-            None,
-        ]);
-    }
-
-    #[test]
     fn rest_tail_bound() {
         let data = get_data();
         assert_matches!(data, [Some(0), Some(_), None, data @ .. => assert_eq!(data.count(), 4)]);
@@ -466,16 +483,6 @@ mod tests {
             collected,
             [(0, None), (1, Some(2)), (2, Some(3)), (3, None),]
         )
-    }
-
-    #[test]
-    fn rest_guard() {
-        let data = get_data();
-        let () = assert_matches!(data, [
-            Some(0),
-            inner @ .. if inner.count() == 5,
-            None,
-        ]);
     }
 
     #[test]
