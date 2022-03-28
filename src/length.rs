@@ -11,7 +11,7 @@ macro_rules! compute_target_length_no_slice {
         $crate::force_type!(const usize: $length)
     };
 
-    ($length:expr; $($name:ident@ )* .. $(if $guard:expr)? $(=> $block:expr)? $(, $($tail:tt)*)?) => {
+    ($length:expr; $($($name:ident)+ @ )* .. $(if $guard:expr)? $(=> $block:expr)? $(, $($tail:tt)*)?) => {
         compile_error!("can't have more than one .. rest pattern in a [] slice pattern")
     };
 
