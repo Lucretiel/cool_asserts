@@ -55,6 +55,26 @@ macro_rules! assert_matches {
         compile_error!("[..] is an infallible iterator pattern")
     }};
 
+
+    (
+        $expression:expr,
+        [
+            $($patterns:tt)*
+        ] $(if $guard:expr)? => $block:expr $(,)?
+    ) => {{
+        let mut iterator = ::core::iter::IntoIterator::into_iter($expression);
+        let target_length = $crate::compute_target_length!(0; $($patterns)*);
+
+        $crate::assert_matches_iter_all!(
+            $(if: $guard,)?
+            block: $block,
+            iter: iterator,
+            index: 0,
+            expected_length: target_length,
+            patterns: [ $($patterns)* ],
+        )
+    }};
+
     (
         $expression:expr,
         [
@@ -72,6 +92,8 @@ macro_rules! assert_matches {
             patterns: [ $($patterns)* ],
         )
     }};
+
+
 
     (
         $expression:expr,

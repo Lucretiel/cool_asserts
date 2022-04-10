@@ -90,7 +90,7 @@ macro_rules! assert_matches_iter_split {
                 expected_length: $index,
                 first_overflow debug: overflow,
             ),
-            ::core::option::Option::None => ($($collected,)*)
+            ::core::option::Option::None => ($($collected,)*),
         }
     };
 
@@ -132,9 +132,9 @@ macro_rules! assert_matches_iter_split {
         )
     }};
 
-    // Rest pattern as not the last pattern, *with* a name binding. We have to
-    // create an iterator that will iterate all but the last N items of the
-    // input iterator and pass it to the guard and / or block.
+    // Rest pattern in a beginning / middle position. We have to create an
+    // iterator that will iterate all but the last N items of the input
+    // iterator and pass it to the guard and / or block.
     (
         iter: $iter:ident,
         index: $index:expr,
@@ -237,7 +237,7 @@ macro_rules! assert_matches_iter_split {
                 "iterable was too short",
                 actual_length: $index,
                 expected_length: $target,
-            )
+            ),
         };
 
         $crate::assert_matches_iter_split!(
@@ -250,7 +250,6 @@ macro_rules! assert_matches_iter_split {
     }}
 }
 
-#[allow(unreachable_patterns)]
 #[cfg(test)]
 mod tests {
     use crate::{assert_matches, assert_panics};
