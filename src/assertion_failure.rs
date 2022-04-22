@@ -106,7 +106,7 @@ macro_rules! count {
 /// let message = get_panic_message(&panic).unwrap();
 /// assert_eq!(
 ///     message,
-///  r#"assertion failed at src/lib.rs:7: `(Assertion Message)`
+///  r#"assertion failed at src/assertion_failure.rs:7: `(Assertion Message)`
 ///       key: 10
 ///  long_key: "Hello\tWorld!"
 ///   Trailing message: Hello, World!"#
@@ -114,7 +114,7 @@ macro_rules! count {
 /// ```
 #[macro_export]
 macro_rules! assertion_failure {
-    ($message:literal $($(, $key:ident $($spec:ident)? : $value:expr)+)? $(; $fmt_pattern:literal $($fmt:tt)*)? ) => {
+    ($message:literal $($(, $key:ident $($spec:ident)? : $value:expr)+)? $(; $( $fmt_pattern:literal $($fmt:tt)* )?)? ) => {
         panic!(
             concat!(
                 "assertion failed at {file}:{line}: `({message})`",
@@ -123,15 +123,15 @@ macro_rules! assertion_failure {
                 $($($crate::make_assertion_failure_fmt!($($spec)?),)+)?
 
                 // This inserts a trailing "\n{}" if there is a fmt messag
-                $($crate::make_assertion_failure_tail!($($fmt)+),)?
+                $($($crate::make_assertion_failure_tail!($fmt_pattern))?)?
             ),
             $($(stringify!($key), $value,)+)?
-            $(
+            $($(
                 $crate::indent_write::indentable::Indented{
                     item: format_args!($fmt_pattern $($fmt)+),
                     indent: "  ",
                 },
-            )?
+            )?)?
             message=$message,
             file=file!(),
             line=line!(),
@@ -140,10 +140,6 @@ macro_rules! assertion_failure {
     };
 
     ($message:literal $($(, $key:ident $($spec:ident)? : $value:expr)+)? ,) => {
-        $crate::assertion_failure!($message $($(, $key $($spec)?: $value)+)?)
-    };
-
-    ($message:literal $($(, $key:ident $($spec:ident)? : $value:expr)+)? ;) => {
         $crate::assertion_failure!($message $($(, $key $($spec)?: $value)+)?)
     };
 }

@@ -36,6 +36,31 @@ macro_rules! check_bind_guard_block {
     ) => {{}}
 }
 
+#[doc(hidden)]
+#[macro_export]
+macro_rules! check_guard {
+    ($message:literal, $guard:expr ; $($fmt_pattern:literal $($fmt_arg:tt)*)?) => {
+        if ! ($guard) {
+            $crate::assertion_failure!(
+                $message,
+                guard: stringify!($guard);
+                $($fmt_pattern $($fmt_arg)*)?
+            )
+        }
+    };
+
+    ($message:literal, ; $($fmt_pattern:literal $($fmt_arg:tt)*)?) => {}
+}
+
+/// This exists to supress the clippy lint that complains when you end a block
+/// with an empty tuple (it wants you to write `{stmt; stmt;}` instead of
+/// `{stmt; stmt; ()}`).
+#[doc(hidden)]
+#[macro_export]
+macro_rules! tupleify {
+    ($($item:expr,)*) => {($($item,)*)};
+}
+
 /// Helper to build an array of precisely the correct length out of the
 /// the iterator, where the correct length is the number of patterns in the
 /// patterns list.
@@ -48,26 +73,26 @@ macro_rules! build_tail_array {
         expected_length: $target:expr,
         patterns: [
             $($($pattern:pat $(if $guard:expr)? $(=> $block:expr)?),+ $(,)?)?
-        ]) => {{
+        ],
+        $(fmt: ( $fmt_pattern:literal $($fmt_arg:tt)* ), )?
+    ) => {{
             let mut index = $index;
             let mut iter = ::core::iter::Iterator::inspect(&mut $iter, |_| {index += 1;});
 
-            [
-                $($(
-                    {
-                        stringify!($pattern);
-
-                        match ::core::iter::Iterator::next(&mut iter) {
-                            ::core::option::Option::Some(item) => item,
-                            ::core::option::Option::None => $crate::assertion_failure!(
-                                "iterable was too short",
-                                actual_length: index,
-                                expected_length: $target,
-                            )
-                        }
-                    },
-                )+)?
-            ]
+            match (move || Some([$($(
+                {
+                    stringify!($pattern);
+                    ::core::iter::Iterator::next(&mut iter)?
+                },
+            )+)?]))() {
+                ::core::option::Option::Some(array) => array,
+                ::core::option::Option::None => $crate::assertion_failure!(
+                    "iterable was too short",
+                    actual_length: index,
+                    expected_length: $target;
+                    $($fmt_pattern $($fmt_arg)*)?
+                )
+            }
         }};
 }
 
@@ -82,13 +107,15 @@ macro_rules! assert_matches_iter_split {
         expected_length: $target:expr,
         collected: ($($collected:expr,)*),
         patterns: [],
+        $( fmt: ( $fmt_pattern:literal $($fmt_arg:tt)* ), )?
     ) => {
         match ::core::iter::Iterator::next(&mut $iter) {
             ::core::option::Option::Some(overflow) => $crate::assertion_failure!(
                 "iterable was too long",
                 actual_length: $index + 1 + ::core::iter::Iterator::count($iter),
                 expected_length: $index,
-                first_overflow debug: overflow,
+                first_overflow debug: overflow;
+                $($fmt_pattern $($fmt_arg)*)?
             ),
             ::core::option::Option::None => ($($collected,)*),
         }
@@ -104,6 +131,7 @@ macro_rules! assert_matches_iter_split {
         patterns: [
             $($($bind:ident)+ @)? .. $(if $guard:expr)? $(=> $block:expr)? $(,)?
         ],
+        $( fmt: ( $fmt_pattern:literal $($fmt_arg:tt)* ), )?
     ) => {{
         // Explicitly discard the target length, in case it wasn't used before
         // now
@@ -117,16 +145,13 @@ macro_rules! assert_matches_iter_split {
 
         $(let $($bind)+ = $iter;)?
 
-        $(
-            if ! ($guard) {
-                $crate::assertion_failure!(
-                    ".. trailing rest parameter failed guard",
-                    guard: stringify!($guard),
-                )
-            }
-        )?
+        $crate::check_guard!(
+            ".. trailing rest parameter failed guard",
+            $($guard)?;
+            $($fmt_pattern $($fmt_arg)*)?
+        );
 
-        (
+        $crate::tupleify!(
             $($collected,)*
             $($block,)?
         )
@@ -144,6 +169,7 @@ macro_rules! assert_matches_iter_split {
             $($($bind:ident)+ @)? .. $(if $guard:expr)? $(=> $block:expr)?,
             $($tail:tt)+
         ],
+        $( fmt: ( $fmt_pattern:literal $($fmt_arg:tt)* ), )?
     ) => {{
         $crate::check_bind_guard_block!(
             {$($($bind)+)?}
@@ -157,7 +183,8 @@ macro_rules! assert_matches_iter_split {
             iter: $iter,
             index: $index,
             expected_length: $target,
-            patterns: [$($tail)+]
+            patterns: [$($tail)+],
+            $( fmt: ( $fmt_pattern $($fmt_arg)* ), )?
         );
 
         // Use LoopBuffer to create an iterator that will yield all but the
@@ -182,14 +209,11 @@ macro_rules! assert_matches_iter_split {
                 // for whatever reason.
                 $(let $($bind)+ = $crate::iterators::erase_type(&mut iter); )?
 
-                $(
-                    if ! ($guard) {
-                        $crate::assertion_failure!(
-                            ".. rest parameter failed guard",
-                            guard: stringify!($guard),
-                        )
-                    };
-                )?
+                $crate::check_guard!(
+                    ".. rest parameter failed guard",
+                    $($guard)? ;
+                    $($fmt_pattern $($fmt_arg)*)?
+                );
 
                 $($block)?
             };
@@ -214,6 +238,7 @@ macro_rules! assert_matches_iter_split {
             expected_length: $target,
             collected: ($($collected,)* $({stringify!($block); block_output},)?),
             patterns: [$($tail)+],
+            $( fmt: ( $fmt_pattern $($fmt_arg)* ), )?
         )
     }};
 
@@ -226,17 +251,20 @@ macro_rules! assert_matches_iter_split {
             $pattern:pat $(if $guard:expr)? $(=> $block:expr)?
             $(, $($tail:tt)*)?
         ],
+        $( fmt: ( $fmt_pattern:literal $($fmt_arg:tt)* ), )?
     ) => {{
         $(stringify!($block); let block_output =)? match ::core::iter::Iterator::next(&mut $iter) {
-            ::core::option::Option::Some(item) => $crate::assert_matches!(
+            ::core::option::Option::Some(item) => $crate::assert_item_matches!(
+                $index,
                 item,
                 $pattern $(if $guard)? $(=> $block)?,
-                "in iterable at index {}", $index
+                $($fmt_pattern $($fmt_arg)*)?
             ),
             ::core::option::Option::None => $crate::assertion_failure!(
                 "iterable was too short",
                 actual_length: $index,
-                expected_length: $target,
+                expected_length: $target;
+                $($fmt_pattern $($fmt_arg)*)?
             ),
         };
 
@@ -246,6 +274,7 @@ macro_rules! assert_matches_iter_split {
             expected_length: $target,
             collected: ($($collected,)* $({stringify!($block); block_output} ,)?),
             patterns: [ $($($tail)*)? ],
+            $( fmt: ( $fmt_pattern $($fmt_arg)* ), )?
         )
     }}
 }
@@ -327,8 +356,8 @@ mod tests {
         assert_panics!(
             assert_matches!(data, [None, Some(3), Some(3)]),
             includes("assertion failed"),
-            includes("value does not match pattern"),
-            includes("in iterable at index 2"),
+            includes("value from iterator does not match pattern"),
+            includes("  index: 2"),
             includes("  value: None"),
             includes("pattern: Some(3)"),
         );
@@ -356,8 +385,8 @@ mod tests {
         assert_panics!(
             assert_matches!(data, [1, 4, 3, 4, a @ 5 => a, b @ 6 => b]),
             includes("assertion failed"),
-            includes("value does not match pattern"),
-            includes("in iterable at index 1"),
+            includes("value from iterator does not match pattern"),
+            includes("  index: 1"),
             includes("  value: 2"),
             includes("pattern: 4"),
         );
@@ -388,10 +417,10 @@ mod tests {
         assert_panics!(
             assert_matches!(data, [1, 4, 3]),
             includes("assertion failed"),
-            includes("value does not match pattern"),
-            includes("in iterable at index 1"),
+            includes("value from iterator does not match pattern"),
             includes("  value: 2"),
             includes("pattern: 4"),
+            includes("  index: 1"),
         );
     }
 
@@ -529,10 +558,10 @@ mod tests {
 
         assert_panics!(
             assert_matches!(data, [Some(0), Some(1), Some(2), .., None]),
-            includes("value does not match pattern"),
-            includes("value: None"),
+            includes("value from iterator does not match pattern"),
+            includes("  value: None"),
             includes("pattern: Some(2)"),
-            includes("in iterable at index 2"),
+            includes("  index: 2")
         )
     }
 
@@ -542,10 +571,10 @@ mod tests {
 
         assert_panics!(
             assert_matches!(data, [Some(0), Some(_), .., None, None]),
-            includes("value does not match pattern"),
-            includes("value: Some("),
+            includes("value from iterator does not match pattern"),
+            includes("  value: Some("),
             includes("pattern: None"),
-            includes("in iterable at index 5"),
+            includes("  index: 5"),
         )
     }
 
@@ -558,5 +587,32 @@ mod tests {
             includes(".. rest parameter failed guard"),
             includes("guard: data.count() == 2"),
         )
+    }
+
+    #[test]
+    fn with_fmt_success() {
+        let data = get_data();
+
+        assert_matches!(data, [Some(0), Some(1), ..], "error: {}", 10)
+    }
+
+    #[test]
+    fn with_fmt_fail() {
+        let data = vec![None, Some(3), None];
+
+        assert_panics!(
+            assert_matches!(
+                data,
+                [None, Some(3), Some(3), ..],
+                "formatted error: {}",
+                10
+            ),
+            includes("assertion failed"),
+            includes("value from iterator does not match pattern"),
+            includes("  index: 2"),
+            includes("  value: None"),
+            includes("pattern: Some(3)"),
+            includes("formatted error: 10")
+        );
     }
 }

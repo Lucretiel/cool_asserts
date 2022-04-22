@@ -16,6 +16,8 @@ macro_rules! assert_matches_iter_all {
     // Base case without guard
     (
         block: $block:expr,
+        $( fmt: ( $fmt_pattern:literal $($fmt_arg:tt)* ), )?
+
     ) => {
         $block
     };
@@ -25,13 +27,15 @@ macro_rules! assert_matches_iter_all {
     (
         if: $guard:expr,
         block: $block:expr,
+        $( fmt: ( $fmt_pattern:literal $($fmt_arg:tt)* ), )?
     ) => {
         if $guard {
             $block
         } else {
             $crate::assertion_failure!(
                 "iterator pattern failed guard",
-                guard: stringify!($guard),
+                guard: stringify!($guard);
+                $($fmt_pattern $($fmt_arg)*)?
             )
         }
     };
@@ -45,17 +49,20 @@ macro_rules! assert_matches_iter_all {
         index: $index:expr,
         expected_length: $target:expr,
         patterns: [],
+        $( fmt: ( $fmt_pattern:literal $($fmt_arg:tt)* ), )?
     ) => {
         match ::core::iter::Iterator::next(&mut $iter) {
             ::core::option::Option::Some(overflow) => $crate::assertion_failure!(
                 "iterable was too long",
                 actual_length: $index + 1 + ::core::iter::Iterator::count($iter),
                 expected_length: $index,
-                first_overflow debug: overflow,
+                first_overflow debug: overflow;
+                $($fmt_pattern $($fmt_arg)*)?
             ),
             ::core::option::Option::None => $crate::assert_matches_iter_all!(
                 $(if: $guard,)?
                 block: $block,
+                $(fmt: ($fmt_pattern $($fmt_arg)*),)?
             ),
         }
     };
@@ -71,6 +78,7 @@ macro_rules! assert_matches_iter_all {
         patterns: [
             $($($bind:ident)+ @)? .. $(,)?
         ],
+        $( fmt: ( $fmt_pattern:literal $($fmt_arg:tt)* ), )?
     ) => {{
         let _discard = $target;
 
@@ -79,6 +87,7 @@ macro_rules! assert_matches_iter_all {
         $crate::assert_matches_iter_all!(
             $(if: $guard,)?
             block: $block,
+            $(fmt: ($fmt_pattern $($fmt_arg)*),)?
         )
     }};
 
@@ -95,6 +104,7 @@ macro_rules! assert_matches_iter_all {
             $($($bind:ident)+ @)? .. ,
             $($tail:tt)+
         ],
+        $( fmt: ( $fmt_pattern:literal $($fmt_arg:tt)* ), )?
     ) => {{
         // Create a buffer length N = the number of remaining patterns, and
         // fill it with the next N items from the iterator
@@ -102,7 +112,8 @@ macro_rules! assert_matches_iter_all {
             iter: $iter,
             index: $index,
             expected_length: $target,
-            patterns: [$($tail)+]
+            patterns: [$($tail)+],
+            $(fmt: ( $fmt_pattern $($fmt_arg)* ),)?
         );
 
         // Use LoopBuffer to create an iterator that will yield all but the
@@ -130,6 +141,7 @@ macro_rules! assert_matches_iter_all {
             index: index,
             expected_length: $target,
             patterns: [$($tail)+],
+            $(fmt: ($fmt_pattern $($fmt_arg)*),)?
         )
     }};
 
@@ -145,9 +157,11 @@ macro_rules! assert_matches_iter_all {
         patterns: [
             $pattern:pat $(, $($tail:tt)*)?
         ],
+        $( fmt: ( $fmt_pattern:literal $($fmt_arg:tt)* ), )?
     ) => {
         match ::core::iter::Iterator::next(&mut $iter) {
-            ::core::option::Option::Some(item) => $crate::assert_matches!(
+            ::core::option::Option::Some(item) => $crate::assert_item_matches!(
+                $index,
                 item,
                 $pattern => $crate::assert_matches_iter_all!(
                     $(if $guard,)?
@@ -158,12 +172,15 @@ macro_rules! assert_matches_iter_all {
                     patterns: [
                         $($($tail)*)?
                     ],
+                    $(fmt: ($fmt_pattern $($fmt_arg)*),)?
                 ),
+                $($fmt_pattern $($fmt_arg)*)?
             ),
             ::core::option::Option::None => $crate::assertion_failure!(
                 "iterable was too short",
                 actual_length: $index,
-                expected_length: $target,
+                expected_length: $target;
+                $($fmt_pattern $($fmt_arg)*)?
             ),
         }
     };
@@ -171,7 +188,7 @@ macro_rules! assert_matches_iter_all {
 
 #[cfg(test)]
 mod tests {
-    use crate::assert_matches;
+    use crate::{assert_matches, assert_panics};
 
     fn get_data() -> impl IntoIterator<Item = Option<i32>> {
         [Some(0), Some(1), None, None, Some(2), Some(3), None]
@@ -192,5 +209,34 @@ mod tests {
         ] => a + b + c);
 
         assert_eq!(value, 4);
+    }
+
+    #[test]
+    fn with_fmt_success() {
+        let data = get_data();
+
+        let value = assert_matches!(
+            data,
+            [Some(a), Some(1), None, None, Some(2), Some(b), None] => a + b,
+            "error: {}",
+            10
+        );
+
+        assert_eq!(value, 3);
+    }
+
+    #[test]
+    fn with_fmt_fail() {
+        let data = vec![None, Some(3), None];
+
+        assert_panics!(
+            assert_matches!(data, [None, Some(a), Some(b)] => a + b, "formatted error: {}", 10),
+            includes("assertion failed"),
+            includes("value from iterator does not match pattern"),
+            includes("  index: 2"),
+            includes("  value: None"),
+            includes("pattern: Some(b)"),
+            includes("formatted error: 10")
+        );
     }
 }

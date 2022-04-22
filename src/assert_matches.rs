@@ -1,6 +1,35 @@
 mod iter_all;
 mod iter_split;
 
+/// Basically the same as assert_matches, but designed for matching a single
+/// item from an iterator assert_matches:
+///
+/// - Includes an index
+/// - allowed to be infallible
+#[doc(hidden)]
+#[macro_export]
+macro_rules! assert_item_matches {
+    (
+        $index:expr,
+        $item:expr,
+        $pattern:pat $(if $guard:expr)? $(=> $block:expr)?
+        $(, $( $fmt_pattern:literal $($fmt_arg:tt)* )?)?
+    ) => {
+        match $item {
+            $pattern $(if $guard)? => { $($block)? },
+
+            #[allow(unreachable_patterns)]
+            ref v => $crate::assertion_failure!(
+                "value from iterator does not match pattern",
+                index debug: $index,
+                value debug: v,
+                pattern: stringify!($pattern $(if $guard)?)
+                $($(; $fmt_pattern $($fmt_arg)*)?)?
+            )
+        }
+    }
+}
+
 /**
 Assert that the value of an expression matches a given pattern.
 
@@ -37,9 +66,72 @@ assert_eq!(x, 10);
 
 # Iteratables
 
-`assert_matches` can handle matching on iterators. If the pattern is a `[..]`
-slice pattern, the test value is treated as an iterator, and each item in the
-iterator is matched
+`assert_matches` can handle matching on iterables. If the pattern is a `[..]`
+slice pattern, the test value is treated as an iterable, and each item in the
+iterator is matched against the corresponding item in the pattern:
+
+```
+use cool_asserts::assert_matches;
+
+let data = vec![5, 5].into_iter().chain(Some(4)).enumerate();
+
+assert_matches!(data, [(0, 5), (1, 5), (2, 4)]);
+```
+
+When used in this way, you can use multiple `=> { block }` expressions *inside*
+the iterator pattern. Each block will be evaluated in order, and a tuple
+containing all the block results will be returned from `assert_matches!`. Like
+with a regular pattern, you can also include an `if` guard.:
+
+```
+use cool_asserts::assert_matches;
+
+let data = vec![1, 2, 3, 4, 5];
+
+let (a, (), c) = assert_matches!(data, [
+    a => a + 1,
+    b => { assert_eq!(b, 2); },
+    3,
+    4,
+    c if c > 2 => c,
+]);
+
+assert_eq!(a, 2);
+assert_eq!(c, 5);
+```
+
+Just like with regular slice patterns, you can use `..` inside the pattern to
+match all the items except for those at the beginning and end:
+
+```
+use cool_asserts::assert_matches;
+
+assert_matches!(0..6, [0, .., 5]);
+assert_matches!(0.., [0, 1, 2, ..]);
+assert_matches!(0..5, [.., 3, 4]);
+```
+
+Also like with regular slice patterns, you can bind a name to this middle
+pattern. However, because `assert_matches!` is matching any iterable rather
+than a slice, the value will itself be an `Iterator` containing all the middle
+elements, rather than a slice:
+
+```
+let data = vec![1, 1, 2, 2, 2, 2, 3, 3];
+
+let (middle_sum,) = assert_matches!(
+    data,
+    [
+        1,
+        1,
+        middle @ .. => middle.sum(),
+        3,
+        3,
+    ]
+);
+
+assert_eq!(middle_sum, 8);
+```
 
 */
 #[macro_export]
@@ -50,17 +142,20 @@ macro_rules! assert_matches {
         $expression:expr,
         [
             $($($name:ident)+ @)? .. $(if $guard:expr)? $(=> $block:expr)? $(,)?
-        ] $(,)?
+        ] $($tail:tt)*
     ) => {{
         compile_error!("[..] is an infallible iterator pattern")
     }};
 
 
+    // Version with a single trailing block, that is executed with the entire
+    // binding
     (
         $expression:expr,
         [
             $($patterns:tt)*
-        ] $(if $guard:expr)? => $block:expr $(,)?
+        ] $(if $guard:expr)? => $block:expr
+        $(, $( $fmt_pattern:literal $($fmt_arg:tt)* )? )?
     ) => {{
         let mut iterator = ::core::iter::IntoIterator::into_iter($expression);
         let target_length = $crate::compute_target_length!(0; $($patterns)*);
@@ -72,14 +167,18 @@ macro_rules! assert_matches {
             index: 0,
             expected_length: target_length,
             patterns: [ $($patterns)* ],
+            $($( fmt: ( $fmt_pattern $($fmt_arg)* ), )?)?
         )
     }};
 
+    // Version with individual, per-item blocks, that are evaluated
+    // independently, in order.
     (
         $expression:expr,
         [
             $($patterns:tt)*
-        ] $(,)?
+        ]
+        $(, $( $fmt_pattern:literal $($fmt_arg:tt)* )? )?
     ) => {{
         let mut iterator = ::core::iter::IntoIterator::into_iter($expression);
         let target_length = $crate::compute_target_length!(0; $($patterns)*);
@@ -90,11 +189,11 @@ macro_rules! assert_matches {
             expected_length: target_length,
             collected: (),
             patterns: [ $($patterns)* ],
+            $($( fmt: ( $fmt_pattern $($fmt_arg)* ), )?)?
         )
     }};
 
-
-
+    // General purpose version, for non-iterators
     (
         $expression:expr,
         $pattern:pat $(if $guard:expr)? $(=> $block:expr)?
@@ -107,7 +206,7 @@ macro_rules! assert_matches {
                 "value does not match pattern",
                 value debug: v,
                 pattern: stringify!($pattern $(if $guard)?)
-                $($(; $fmt_pattern $($fmt_arg)+)?)?
+                $($(; $fmt_pattern $($fmt_arg)*)?)?
             )
         }
     };
