@@ -28,3 +28,6 @@ macro_rules! force_type {
         ::core::convert::identity::<$type>($value)
     };
 }
+
+#[doc(hidden)]
+pub use core as secret_core;

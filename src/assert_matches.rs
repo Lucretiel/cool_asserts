@@ -78,15 +78,39 @@ let data = vec![5, 5].into_iter().chain(Some(4)).enumerate();
 assert_matches!(data, [(0, 5), (1, 5), (2, 4)]);
 ```
 
-When used in this way, you can use multiple `=> { block }` expressions *inside*
+In addition to matching the patterns themselves, the iterator must also
+precisely match the length of the `[ .. ]` iterator pattern. If the iterator
+is too long, `assert_matches` will helpfully include the *first* item that was
+in excess of the pattern's length, as well as the total length of the iterator
+
+```
+use cool_asserts::{assert_matches, assert_panics};
+
+assert_panics!(
+    assert_matches!(vec!['a', 'b', 'c', 'd'], ['a', 'b']),
+    includes("too long"),
+    includes("actual_length: 4"),
+    includes("expected_length: 2"),
+    includes("first_overflow: 'c'"),
+);
+
+assert_panics!(
+    assert_matches!(vec!['a'], ['a', 'b', 'c']),
+    includes("too short"),
+    includes("actual_length: 1"),
+    includes("expected_length: 3"),
+);
+```
+
+When used in this way, you can use multiple `=> { block }` arms *inside*
 the iterator pattern. Each block will be evaluated in order, and a tuple
 containing all the block results will be returned from `assert_matches!`. Like
-with a regular pattern, you can also include an `if` guard.:
+with a regular pattern, you can also include an `if` guard:
 
 ```
 use cool_asserts::assert_matches;
 
-let data = vec![1, 2, 3, 4, 5];
+let data = 1..6;
 
 let (a, (), c) = assert_matches!(data, [
     a => a + 1,
@@ -104,19 +128,25 @@ Just like with regular slice patterns, you can use `..` inside the pattern to
 match all the items except for those at the beginning and end:
 
 ```
+use std::iter;
 use cool_asserts::assert_matches;
 
-assert_matches!(0..6, [0, .., 5]);
-assert_matches!(0.., [0, 1, 2, ..]);
-assert_matches!(0..5, [.., 3, 4]);
+assert_matches!(vec![0, 1, 2, 3, 4, 5], [0, .., 5]);
+assert_matches!(vec![0, 1, 2, 3, 4, 5], [.., 4, 5]);
+
+// It supports infinite iterators as long as the
+// last pattern in the match is ..
+assert_matches!(iter::repeat(3), [3, 3, 3, ..]);
 ```
 
 Also like with regular slice patterns, you can bind a name to this middle
-pattern. However, because `assert_matches!` is matching any iterable rather
-than a slice, the value will itself be an `Iterator` containing all the middle
-elements, rather than a slice:
+pattern and use it in the `=> block`. However, because `assert_matches!` is
+matching any iterable rather than a slice, the value will itself be an
+`Iterator` containing all the middle elements, rather than a subslice:
 
 ```
+use cool_asserts::assert_matches;
+
 let data = vec![1, 1, 2, 2, 2, 2, 3, 3];
 
 let (middle_sum,) = assert_matches!(
@@ -124,15 +154,14 @@ let (middle_sum,) = assert_matches!(
     [
         1,
         1,
-        middle @ .. => middle.sum(),
+        middle @ .. => middle.reduce(|a, b| a + b),
         3,
         3,
     ]
 );
 
-assert_eq!(middle_sum, 8);
+assert_eq!(middle_sum, Some(8));
 ```
-
 */
 #[macro_export]
 macro_rules! assert_matches {
