@@ -185,20 +185,24 @@ macro_rules! assert_matches {
             $($patterns:tt)*
         ] $(if $guard:expr)? => $block:expr
         $(, $( $fmt_pattern:literal $($fmt_arg:tt)* )? )?
-    ) => {{
-        let mut iterator = ::core::iter::IntoIterator::into_iter($expression);
-        let target_length = $crate::compute_target_length!(0; $($patterns)*);
+    ) => {
+        match $expression {
+            iterable => {
+                let mut iterator = ::core::iter::IntoIterator::into_iter(iterable);
+                let target_length = $crate::compute_target_length!(0; $($patterns)*);
 
-        $crate::assert_matches_iter_all!(
-            $(if: $guard,)?
-            block: $block,
-            iter: iterator,
-            index: 0,
-            expected_length: target_length,
-            patterns: [ $($patterns)* ],
-            $($( fmt: ( $fmt_pattern $($fmt_arg)* ), )?)?
-        )
-    }};
+                $crate::assert_matches_iter_all!(
+                    $(if: $guard,)?
+                    block: $block,
+                    iter: iterator,
+                    index: 0,
+                    expected_length: target_length,
+                    patterns: [ $($patterns)* ],
+                    $($( fmt: ( $fmt_pattern $($fmt_arg)* ), )?)?
+                )
+            }
+        }
+    };
 
     // Version with individual, per-item blocks, that are evaluated
     // independently, in order.
@@ -208,19 +212,24 @@ macro_rules! assert_matches {
             $($patterns:tt)*
         ]
         $(, $( $fmt_pattern:literal $($fmt_arg:tt)* )? )?
-    ) => {{
-        let mut iterator = ::core::iter::IntoIterator::into_iter($expression);
-        let target_length = $crate::compute_target_length!(0; $($patterns)*);
+    ) => {
+        match $expression {
+            iterable => {
+                let mut iterator = ::core::iter::IntoIterator::into_iter(iterable);
 
-        $crate::assert_matches_iter_split!(
-            iter: iterator,
-            index: 0,
-            expected_length: target_length,
-            collected: (),
-            patterns: [ $($patterns)* ],
-            $($( fmt: ( $fmt_pattern $($fmt_arg)* ), )?)?
-        )
-    }};
+                let target_length = $crate::compute_target_length!(0; $($patterns)*);
+
+                $crate::assert_matches_iter_split!(
+                    iter: iterator,
+                    index: 0,
+                    expected_length: target_length,
+                    collected: (),
+                    patterns: [ $($patterns)* ],
+                    $($( fmt: ( $fmt_pattern $($fmt_arg)* ), )?)?
+                )
+            }
+        }
+    };
 
     // General purpose version, for non-iterators
     (

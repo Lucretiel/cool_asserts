@@ -212,6 +212,20 @@ mod tests {
     }
 
     #[test]
+    fn nameless_temporary_borrow() {
+        fn make_vec() -> Vec<u32> {
+            vec![2, 3, 4]
+        }
+
+        let sum = assert_matches!(
+            make_vec().as_slice(),
+            [a, b, c] => a + b + c
+        );
+
+        assert_eq!(sum, 9);
+    }
+
+    #[test]
     fn with_fmt_success() {
         let data = get_data();
 

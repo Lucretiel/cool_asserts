@@ -350,6 +350,15 @@ mod tests {
     }
 
     #[test]
+    fn nameless_temporary_borrow() {
+        fn make_vec() -> Vec<u32> {
+            vec![2, 3, 4]
+        }
+
+        assert_matches!(make_vec().as_slice(), [2, 3, 4]);
+    }
+
+    #[test]
     fn iter_failure_mismatch() {
         let data = vec![None, Some(3), None];
 
