@@ -79,12 +79,17 @@ macro_rules! build_tail_array {
             let mut index = $index;
             let mut iter = ::core::iter::Iterator::inspect(&mut $iter, |_| {index += 1;});
 
-            match (move || Some([$($(
-                {
-                    stringify!($pattern);
-                    ::core::iter::Iterator::next(&mut iter)?
-                },
-            )+)?]))() {
+            match loop {
+                break ::core::option::Option::Some([$($(
+                    {
+                        stringify!($pattern);
+                        match ::core::iter::Iterator::next(&mut iter) {
+                            ::core::option::Option::Some(item) => item,
+                            ::core::option::Option::None => break ::core::option::Option::None,
+                        }
+                    },
+                )+)?])
+            } {
                 ::core::option::Option::Some(array) => array,
                 ::core::option::Option::None => $crate::assertion_failure!(
                     "iterable was too short",
