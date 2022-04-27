@@ -164,7 +164,7 @@ macro_rules! assert_matches_iter_all {
                 $index,
                 item,
                 $pattern => $crate::assert_matches_iter_all!(
-                    $(if $guard,)?
+                    $(if: $guard,)?
                     block: $block,
                     iter: $iter,
                     index: $index + 1,
@@ -209,6 +209,18 @@ mod tests {
         ] => a + b + c);
 
         assert_eq!(value, 4);
+    }
+
+    #[test]
+    fn with_guard() {
+        let data = vec![&1, &2, &3];
+
+        let value = assert_matches!(
+            data.as_slice(),
+            [a, b, c] if **a == 1 => **a + **b + **c
+        );
+
+        assert_eq!(value, 6);
     }
 
     #[test]
