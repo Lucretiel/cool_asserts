@@ -128,7 +128,7 @@ macro_rules! assertion_failure {
             $($(stringify!($key), $value,)+)?
             $($(
                 $crate::indent_write::indentable::Indented{
-                    item: format_args!($fmt_pattern $($fmt)+),
+                    item: format_args!($fmt_pattern $($fmt)*),
                     indent: "  ",
                 },
             )?)?
@@ -186,6 +186,19 @@ mod assertion_failure_tests {
             includes("     key: 10\n"),
             includes("long_key: 20\n"),
             includes("\n  Hello, World!")
+        );
+    }
+
+    #[test]
+    fn simple_trailing_fmt() {
+        assert_panics!(
+            assertion_failure!(
+                "Failure Message";
+                "Context around what/why we are checking"
+            ),
+            includes("assertion failed at"),
+            includes("Failure Message"),
+            includes("Context around what/why we are checking")
         );
     }
 
