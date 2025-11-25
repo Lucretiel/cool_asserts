@@ -106,7 +106,7 @@ macro_rules! count {
 /// let message = get_panic_message(&panic).unwrap();
 /// assert_eq!(
 ///     message,
-///  r#"assertion failed at src/assertion_failure.rs:7: `(Assertion Message)`
+///  r#"assertion failed at src/assertion_failure.rs:8: `(Assertion Message)`
 ///       key: 10
 ///  long_key: "Hello\tWorld!"
 ///   Trailing message: Hello, World!"#
